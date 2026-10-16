@@ -457,6 +457,12 @@
   }
   .import-unverified{ color:#ffb36b; margin-right:4px; }
   .import-vid-tile{ height:90px; display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--ink-dim); gap:6px; }
+.deep-row{display:flex;gap:10px;align-items:flex-start;font-size:12.5px;line-height:1.7;color:#c9c9c9;margin:10px 2px;cursor:pointer}
+.deep-row input{width:18px;height:18px;margin-top:3px;accent-color:#e60023;flex:none}
+.import-vid-title{font-size:10px;line-height:1.3;padding:0 6px;text-align:center;opacity:.85;max-height:2.6em;overflow:hidden}
+.import-bg{position:fixed;left:12px;right:12px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:9999;background:#1d1d1d;border:1px solid #e60023;border-radius:14px;padding:10px 14px;display:flex;gap:10px;align-items:center;justify-content:space-between;font-size:12.5px;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.import-bg span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl}
+.import-bg button{background:#e60023;color:#fff;border:0;border-radius:10px;padding:7px 14px;font-family:inherit;font-weight:700;flex:none}
 </style>
 </head>
 <body>
@@ -804,14 +810,14 @@
       <div class="rename-box">
         <input type="text" id="importUrlInput" placeholder="رابط صفحة، أو رابط صورة/فيديو مباشر">
       </div>
-      <div class="import-note">
-        يبحث بالصفحة، وإذا كل صورة فيها مرتبطة بصفحتها الخاصة (مواقع المعارض المعروفة) يروح بالخلفية لصفحة كل صورة ويجيب نسختها الأصلية عالية الجودة بدل المصغّرة — يبين شعار HD عليها لما يخلص. مواقع فيها حماية، أو تحمّل صورها بجافاسكربت بعد الفتح، ممكن ما تنلقى فيها شي — قيد تقني بالمتصفح نفسه. منصات فيديو كبيرة (يوتيوب وأشباهها) ما مدعومة عمدًا — تنزيل الفيديو منها يخالف شروط استخدامها.
+      <div class="import-note">حط رابط صفحة أو رابط فيديو مباشر (mp4 / m3u8). يلقط الصور والفيديوهات والمشغّلات المضمّنة، ويجيب النسخة الأصلية عالية الجودة. الفيديوهات الضخمة (حلقات أنمي) تنزل بالخلفية بشريط تقدّم وتكدر تسكّر النافذة. مواقع بحماية DRM أو بث مباشر أو منصات مثل يوتيوب ما مدعومة. ملاحظة: البروكسي لازم يحمّل الملف كامل قبل ما يبدأ ينزل لتطبيقك، فالملفات الكبيرة جدًا تتأخر بالبداية.
       </div>
       <div class="proxy-row">
         <input type="text" id="proxyAddrInput" placeholder="http://127.0.0.1:8080" dir="ltr">
         <button class="row-action-btn" id="proxyTestBtn">اختبار</button>
       </div>
       <div class="proxy-status" id="proxyStatus"></div>
+      <label class="deep-row"><input type="checkbox" id="importDeepChk"><span>فحص عميق: ادخل الصفحات المرتبطة (الحلقات، الصفحات التالية، المشغّلات المضمّنة) وجيب منها كل الفيديوهات والصور</span></label>
       <div class="import-log" id="importLog" style="display:none;"></div>
       <div class="rename-actions">
         <button class="cancel" id="importCancel">إغلاق</button>
@@ -834,6 +840,7 @@
   </div>
 </div>
 
+<div class="import-bg" id="importBg" style="display:none;"><span id="importBgText"></span><button id="importBgCancel">إيقاف</button></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -2224,7 +2231,7 @@
         else if(VID_URL_RE.test(hh)){ add(hh,"video"); taggedAny=true; }
       });
       doc.querySelectorAll("[style*='url(']").forEach(el=>{
-        const mm=(el.getAttribute("style")||"").match(/url\\(\\s*['"]?([^'")]+)['"]?\\s*\\)/);
+        const mm=(el.getAttribute("style")||"").match(/url\(\s*['"]?([^'")]+)['"]?\s*\)/);
         if(mm){ add(mm[1],"image"); taggedAny=true; }
       });
     }catch(e){}
@@ -2241,13 +2248,13 @@
         while((mm=rv.exec(flat))&&guard++<400) add(mm[0],"video",{unverified:true});
       }catch(e){}
     }
-    return dedupeCandidates(out).slice(0,300);
+    return dedupeCandidates(out).slice(0,1500);
   }
   function mediaKeyFor(url){
     try{
       const u=new URL(url);
-      let p=u.pathname.replace(/-\\d{2,4}x\\d{2,4}(?=\\.[a-z0-9]+$)/i,"")
-                       .replace(/[-_](thumb|thumbnail|small|medium|large|preview|mini)(?=\\.[a-z0-9]+$)/i,"");
+      let p=u.pathname.replace(/-\d{2,4}x\d{2,4}(?=\.[a-z0-9]+$)/i,"")
+                       .replace(/[-_](thumb|thumbnail|small|medium|large|preview|mini)(?=\.[a-z0-9]+$)/i,"");
       return u.hostname+p;
     }catch(e){ return url; }
   }
@@ -2296,7 +2303,16 @@
     line.textContent="⏳ "+url;
     logWrap.appendChild(line);
     try{
-      if(looksLikeDirectMedia(url)){
+      if(HLS_RE.test(url)||VID_URL_RE.test(url)){
+        importCandidates=[{url,kind:"video",hls:HLS_RE.test(url),selected:true,userTouched:false}];
+        logWrap.style.display="none";
+        document.getElementById("importStep1").style.display="none";
+        document.getElementById("importStep2").style.display="block";
+        document.getElementById("importTitle").textContent="فيديو مباشر — اضغط تحميل";
+        renderImportResults();
+        return;
+      }
+      if(IMG_URL_RE.test(url)){
         try{
           const blob=await proxyGet(url,"blob",120000);
           if(/^(image|video)\//i.test(blob.type||"")){
@@ -2308,12 +2324,13 @@
         }catch(e){ if(isProxyDown(e)) throw e; }
       }
       const html=await proxyGet(url,"text",45000);
-      const cands=extractMediaFromHtml(html,url);
+      const deep=!!document.getElementById("importDeepChk").checked;
+      const cands=await gatherCandidates(url,html,deep,t=>{ line.textContent="⏳ "+t; });
       if(!cands.length){
         line.textContent="✗ "+url+" — وصلت الصفحة بس ما لقيت فيها صور/فيديو (غالبًا الموقع يحمّلها بجافاسكربت بعد الفتح)";
         return;
       }
-      importCandidates=cands.map(c=>({...c, selected:!JUNK_RE.test(c.url), userTouched:false}));
+      importCandidates=cands.map(c=>({...c, selected:c.kind==='video'||!JUNK_RE.test(c.url), userTouched:false}));
       logWrap.style.display="none";
       document.getElementById("importStep1").style.display="none";
       document.getElementById("importStep2").style.display="block";
@@ -2365,7 +2382,7 @@
       cell.className="import-cell"+(c.selected?" picked":"");
       cell.dataset.candUrl=c.originalThumbUrl||c.url;
       if(c.kind==="video"){
-        cell.innerHTML='<div class="import-vid-tile"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M8 5v14l11-7-11-7z" fill="currentColor"/></svg>فيديو'+(c.unverified?'<span class="import-unverified">؟</span>':'')+'</div>';
+        cell.innerHTML='<div class="import-vid-tile"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M8 5v14l11-7-11-7z" fill="currentColor"/></svg>'+(c.hls?'HLS':'فيديو')+(c.title?'<div class="import-vid-title">'+c.title.replace(/[<>&]/g,'').slice(0,40)+'</div>':'')+(c.unverified?'<span class="import-unverified">؟</span>':'')+'</div>';
       }else{
         const img=document.createElement("img");
         cell.appendChild(img);
@@ -2461,40 +2478,416 @@
     }))).catch(()=>{});
   }
 
-  document.getElementById("importDownloadSelectedBtn").addEventListener("click", async ()=>{
+  // ============================================================
+  // v18 — PROFESSIONAL IMPORT ENGINE (still 100% through the user's proxy)
+  // • finds videos (mp4/webm/mkv + HLS .m3u8) in pages, player iframes and scripts
+  // • "deep scan": follows next-pages + episode/video links
+  // • huge files: streamed with live progress; HLS: parallel segments,
+  //   AES-128 decrypt, best-quality variant, remux to MP4 (mux.js loaded on demand)
+  // • runs in the background with a floating progress pill + cancel
+  // ============================================================
+  const HLS_RE=/\.m3u8(\?|#|$)/i;
+  const ANY_VID_RE=/\.(mp4|webm|mov|mkv|m4v|m3u8)(\?|#|$)/i;
+  function cleanUrlText(s){ return String(s||"").replace(/\\u002F/gi,"/").replace(/\\\//g,"/").replace(/&amp;/g,"&").trim(); }
+  function extractVideoSources(html, baseUrl){
+    const videos=[]; const frames=[]; const links=[]; const seen=new Set();
+    let title="";
+    const addV=(src)=>{
+      src=cleanUrlText(src);
+      if(!src||/^(data:|blob:|javascript:)/i.test(src)) return;
+      try{
+        const abs=new URL(src,baseUrl).href;
+        if(seen.has(abs)) return; seen.add(abs);
+        videos.push({url:abs,kind:"video",hls:HLS_RE.test(abs)});
+      }catch(e){}
+    };
+    try{
+      const flat=cleanUrlText(html);
+      const re=/["'(=\s]((?:https?:)?\/\/[^"'\s<>()\\]+?\.(?:m3u8|mp4|webm|mkv|m4v|mov)(?:\?[^"'\s<>()\\]*)?|\/?[A-Za-z0-9_\-./%~]+?\.(?:m3u8|mp4|webm|mkv|m4v|mov)(?:\?[^"'\s<>()\\]*)?)["')\s]/gi;
+      let m, g=0;
+      while((m=re.exec(flat))&&g++<400) addV(m[1]);
+    }catch(e){}
+    try{
+      const doc=new DOMParser().parseFromString(html,"text/html");
+      title=(doc.title||"").trim();
+      const baseEl=doc.querySelector("base[href]");
+      if(baseEl){ try{ baseUrl=new URL(baseEl.getAttribute("href"),baseUrl).href; }catch(e){} }
+      doc.querySelectorAll("video[src],video source[src],source[src],meta[property='og:video'],meta[property='og:video:url'],meta[property='og:video:secure_url'],link[rel='alternate'][href]").forEach(el=>{
+        const v=el.getAttribute("src")||el.getAttribute("content")||el.getAttribute("href");
+        if(v && (ANY_VID_RE.test(v)||el.tagName==="VIDEO"||el.tagName==="SOURCE")) addV(v);
+      });
+      doc.querySelectorAll("iframe[src],iframe[data-src],embed[src]").forEach(el=>{
+        const v=el.getAttribute("src")||el.getAttribute("data-src");
+        if(!v||/^(about:|javascript:|data:)/i.test(v)) return;
+        try{ const a=new URL(v,baseUrl).href; if(!/(ads?|doubleclick|googletag|facebook|twitter)\b/i.test(new URL(a).hostname)) frames.push(a); }catch(e){}
+      });
+      doc.querySelectorAll("a[href]").forEach(el=>{
+        const h=el.getAttribute("href")||"";
+        if(!h||h[0]==="#"||/^(javascript:|mailto:|tel:)/i.test(h)) return;
+        try{
+          const a=new URL(h,baseUrl).href;
+          if(ANY_VID_RE.test(a)){ addV(a); return; }
+          if(IMG_URL_RE.test(a)) return;
+          const rel=(el.getAttribute("rel")||"").toLowerCase();
+          const txt=(el.textContent||"").trim().slice(0,80);
+          links.push({url:a.split("#")[0],text:txt,next:/\bnext\b/.test(rel)||/^(next|التالي|›|»|>|older|more)\b/i.test(txt)||el.matches(".next,.next-page,a.next,[aria-label*='next' i]")});
+        }catch(e){}
+      });
+    }catch(e){}
+    return {videos,frames:Array.from(new Set(frames)).slice(0,12),links,title};
+  }
+
+  // ---- page gathering: main page + player iframes (+ optional deep crawl) ----
+  const crawlLimit=makeLimiter(3);
+  async function gatherCandidates(url, html, deep, say){
+    const all=[]; const pageTitle={};
+    const take=(list,from)=>list.forEach(c=>{ if(from) c.fromPage=from; all.push(c); });
+    const mainV=extractVideoSources(html,url);
+    take(extractMediaFromHtml(html,url),url);
+    take(mainV.videos.map(v=>Object.assign(v,{title:mainV.title})),url);
+    // player iframes: one level only
+    await Promise.all(mainV.frames.map(f=>crawlLimit(async()=>{
+      try{
+        say("↳ مشغّل مضمّن: "+f);
+        const h=await proxyGet(f,"text",25000);
+        const v=extractVideoSources(h,f);
+        take(v.videos.map(x=>Object.assign(x,{title:mainV.title})),f);
+      }catch(e){ if(isProxyDown(e)) throw e; }
+    })));
+    if(deep){
+      const host=new URL(url).hostname;
+      const visited=new Set([url.split("#")[0]]);
+      // 1) follow "next" pages (up to 5)
+      let curLinks=mainV.links, cur=url, pages=[url];
+      for(let i=0;i<5;i++){
+        const nx=curLinks.find(l=>l.next && !visited.has(l.url) && new URL(l.url).hostname===host);
+        if(!nx) break;
+        visited.add(nx.url);
+        try{
+          say("↳ الصفحة التالية: "+nx.url);
+          const h=await proxyGet(nx.url,"text",30000);
+          take(extractMediaFromHtml(h,nx.url),nx.url);
+          const v=extractVideoSources(h,nx.url);
+          take(v.videos.map(x=>Object.assign(x,{title:v.title})),nx.url);
+          curLinks=v.links; cur=nx.url; pages.push(nx.url);
+          mainV.links=mainV.links.concat(v.links);
+        }catch(e){ if(isProxyDown(e)) throw e; break; }
+      }
+      // 2) follow episode / video / detail links (same host, up to 40)
+      const pri=/(episode|ep[-_]?\d|watch|video|play|view|حلقة|الحلقة|مشاهدة|movie|film|\/e\d+|season)/i;
+      const seenL=new Set(); const targets=[];
+      mainV.links.forEach(l=>{
+        if(visited.has(l.url)||seenL.has(l.url)) return;
+        try{ if(new URL(l.url).hostname!==host) return; }catch(e){ return; }
+        if(/\.(css|js|json|xml|pdf|zip|rar)(\?|$)/i.test(l.url)) return;
+        seenL.add(l.url); targets.push(l);
+      });
+      targets.sort((a,b)=>(pri.test(b.url+" "+b.text)?1:0)-(pri.test(a.url+" "+a.text)?1:0));
+      const pick=targets.slice(0,40);
+      let done=0;
+      await Promise.all(pick.map(l=>crawlLimit(async()=>{
+        try{
+          const h=await proxyGet(l.url,"text",25000);
+          const v=extractVideoSources(h,l.url);
+          const ttl=v.title||l.text;
+          take(v.videos.map(x=>Object.assign(x,{title:ttl})),l.url);
+          take(extractMediaFromHtml(h,l.url).filter(c=>c.kind==="video"||!JUNK_RE.test(c.url)),l.url);
+          for(const f of v.frames.slice(0,2)){
+            try{ const fh=await proxyGet(f,"text",20000); const fv=extractVideoSources(fh,f); take(fv.videos.map(x=>Object.assign(x,{title:ttl})),f); }catch(e){ if(isProxyDown(e)) throw e; }
+          }
+        }catch(e){ if(isProxyDown(e)) throw e; }
+        done++; say("↳ فحصت "+done+"/"+pick.length+" صفحة مرتبطة…");
+      })));
+    }
+    // dedupe: videos by exact url, images by media key
+    const vids=new Map(), imgs=[];
+    all.forEach(c=>{ if(c.kind==="video"){ if(!vids.has(c.url)) vids.set(c.url,c); } else imgs.push(c); });
+    const vlist=Array.from(vids.values());
+    // when a master playlist and its variants both appear, keep only distinct ones (master handles quality itself)
+    return dedupeCandidates(imgs).concat(vlist).slice(0,1500);
+  }
+
+  // ---- HLS ----
+  function parseM3U8(text, base){
+    const lines=String(text).split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+    if(!lines.length||lines[0].indexOf("#EXTM3U")!==0) throw new Error("NOT_M3U8");
+    const abs=u=>new URL(u,base).href;
+    const variants=[], segs=[]; let key=null, map=null, seq=0, dur=0, pv=null, ended=false;
+    for(const ln of lines){
+      if(ln.indexOf("#EXT-X-MEDIA-SEQUENCE:")===0) seq=parseInt(ln.split(":")[1],10)||0;
+      else if(ln.indexOf("#EXT-X-STREAM-INF:")===0){
+        const b=/BANDWIDTH=(\d+)/.exec(ln), r=/RESOLUTION=(\d+)x(\d+)/.exec(ln);
+        pv={bw:b?+b[1]:0,h:r?+r[2]:0};
+      }
+      else if(ln.indexOf("#EXT-X-KEY:")===0){
+        const m=(/METHOD=([^,]+)/.exec(ln)||[])[1];
+        if(!m||m==="NONE") key=null;
+        else{ const u=/URI="([^"]+)"/.exec(ln), iv=/IV=0x([0-9a-f]+)/i.exec(ln); key={method:m,url:u?abs(u[1]):null,iv:iv?iv[1]:null}; }
+      }
+      else if(ln.indexOf("#EXT-X-MAP:")===0){ const u=/URI="([^"]+)"/.exec(ln); if(u) map=abs(u[1]); }
+      else if(ln.indexOf("#EXTINF:")===0) dur=parseFloat(ln.slice(8))||0;
+      else if(ln.indexOf("#EXT-X-ENDLIST")===0) ended=true;
+      else if(ln[0]!=="#"){
+        if(pv){ variants.push(Object.assign({url:abs(ln)},pv)); pv=null; }
+        else{ segs.push({url:abs(ln),dur,key,map,seq:seq++}); dur=0; }
+      }
+    }
+    return {variants,segs,ended};
+  }
+  function ivFor(seg){
+    const iv=new Uint8Array(16);
+    if(seg.key&&seg.key.iv){
+      const hex=seg.key.iv.padStart(32,"0");
+      for(let i=0;i<16;i++) iv[i]=parseInt(hex.substr(i*2,2),16);
+    }else{ let n=seg.seq; for(let i=15;i>=12;i--){ iv[i]=n&255; n=Math.floor(n/256); } }
+    return iv;
+  }
+
+  // ---- low-level fetchers (progress + cancel aware) ----
+  const importJob={running:false,cancel:false,aborts:new Set(),total:0,done:0,label:""};
+  function jobCheck(){ if(importJob.cancel) throw new Error("CANCELLED"); }
+  async function proxyBuf(target, ms){
+    jobCheck();
+    const ctrl=new AbortController(); importJob.aborts.add(ctrl);
+    const timer=setTimeout(()=>ctrl.abort(), ms||90000);
+    try{
+      let resp;
+      try{ resp=await fetch(proxyUrl(target),{signal:ctrl.signal,cache:"no-store"}); }
+      catch(e){ throw new Error(importJob.cancel?"CANCELLED":(ctrl.signal.aborted?"PROXY_TIMEOUT":"PROXY_DOWN")); }
+      if(!resp.ok){ const er=new Error("PROXY_HTTP_"+resp.status); er.status=resp.status; throw er; }
+      return await resp.arrayBuffer();
+    }finally{ clearTimeout(timer); importJob.aborts.delete(ctrl); }
+  }
+  async function proxyStream(target, onProg){
+    jobCheck();
+    const ctrl=new AbortController(); importJob.aborts.add(ctrl);
+    let timer=setTimeout(()=>ctrl.abort(), 30*60*1000); // proxy buffers the whole file first — first byte can take a while
+    const t0=Date.now();
+    try{
+      let resp;
+      const waitTick=setInterval(()=>{ try{ onProg(0,0,"البروكسي يجهّز الملف… "+Math.round((Date.now()-t0)/1000)+" ث"); }catch(e){} },1000);
+      try{
+        try{ resp=await fetch(proxyUrl(target),{signal:ctrl.signal,cache:"no-store"}); }
+        catch(e){ throw new Error(importJob.cancel?"CANCELLED":(ctrl.signal.aborted?"PROXY_TIMEOUT":"PROXY_DOWN")); }
+      }finally{ clearInterval(waitTick); }
+      if(!resp.ok){ const er=new Error("PROXY_HTTP_"+resp.status); er.status=resp.status; try{ er.detail=((await resp.text())||"").slice(0,140); }catch(e){} throw er; }
+      const ct=(resp.headers.get("content-type")||"").toLowerCase();
+      if(/text\/html|application\/json/.test(ct)) throw new Error("NOT_MEDIA");
+      const total=parseInt(resp.headers.get("content-length")||"0",10)||0;
+      if(!resp.body||!resp.body.getReader){ const b=await resp.blob(); onProg(b.size,b.size); return b; }
+      const reader=resp.body.getReader();
+      let parts=[], blobs=[], buffered=0, got=0, lastT=Date.now(), lastB=0;
+      for(;;){
+        clearTimeout(timer); timer=setTimeout(()=>ctrl.abort(), 3*60*1000);
+        let r;
+        try{ r=await reader.read(); }catch(e){ throw new Error(importJob.cancel?"CANCELLED":"PROXY_TIMEOUT"); }
+        if(r.done) break;
+        parts.push(r.value); got+=r.value.length; buffered+=r.value.length;
+        if(buffered>=32*1048576){ blobs.push(new Blob(parts)); parts=[]; buffered=0; } // let the browser spill to disk
+        const now=Date.now();
+        if(now-lastT>400){ const sp=(got-lastB)/((now-lastT)/1000); lastT=now; lastB=got; onProg(got,total,null,sp); }
+        jobCheck();
+      }
+      if(parts.length) blobs.push(new Blob(parts));
+      const out=new Blob(blobs,{type:ct.split(";")[0]||"video/mp4"});
+      onProg(got,total||got);
+      if(out.size<500) throw new Error("EMPTY");
+      return out;
+    }finally{ clearTimeout(timer); importJob.aborts.delete(ctrl); }
+  }
+
+  const MUX_URLS=["https://cdn.jsdelivr.net/npm/mux.js@7.0.3/dist/mux.min.js","https://cdnjs.cloudflare.com/ajax/libs/mux.js/7.0.3/mux.min.js","https://unpkg.com/mux.js@7.0.3/dist/mux.min.js"];
+  let muxPromise=null;
+  function loadMux(){
+    if(window.muxjs&&window.muxjs.mp4) return Promise.resolve(window.muxjs);
+    if(muxPromise) return muxPromise;
+    muxPromise=new Promise((res,rej)=>{
+      let i=0;
+      const next=()=>{
+        if(i>=MUX_URLS.length){ muxPromise=null; rej(new Error("MUX_LOAD")); return; }
+        const s=document.createElement("script"); s.src=MUX_URLS[i++];
+        s.onload=()=>(window.muxjs&&window.muxjs.mp4)?res(window.muxjs):next();
+        s.onerror=next; document.head.appendChild(s);
+      };
+      next();
+    });
+    return muxPromise;
+  }
+
+  async function downloadHls(c, onProg){
+    let url=c.url;
+    let pl=parseM3U8(await proxyGet(url,"text",45000),url);
+    if(pl.variants.length){
+      pl.variants.sort((a,b)=>(b.h-a.h)||(b.bw-a.bw));
+      url=pl.variants[0].url;
+      pl=parseM3U8(await proxyGet(url,"text",45000),url);
+    }
+    if(!pl.segs.length) throw new Error("HLS_EMPTY");
+    if(!pl.ended) throw new Error("HLS_LIVE");
+    if(pl.segs.some(s=>s.key&&s.key.method!=="AES-128")) throw new Error("HLS_DRM");
+    const segs=pl.segs, n=segs.length;
+    const fmp4=!!segs[0].map || /\.(m4s|mp4|cmfv)(\?|$)/i.test(segs[0].url);
+    let mux=null, tx=null;
+    if(!fmp4){
+      try{ mux=await loadMux(); }catch(e){ mux=null; }
+      if(mux){ tx=new mux.mp4.Transmuxer({keepOriginalTimestamps:false}); }
+    }
+    const keyCache=new Map();
+    async function keyFor(seg){
+      if(!seg.key||!seg.key.url) return null;
+      if(!keyCache.has(seg.key.url)){
+        keyCache.set(seg.key.url,(async()=>{
+          const raw=await proxyBuf(seg.key.url,30000);
+          return crypto.subtle.importKey("raw",raw,{name:"AES-CBC"},false,["decrypt"]);
+        })());
+      }
+      return keyCache.get(seg.key.url);
+    }
+    async function fetchSeg(seg){
+      let last;
+      for(let a=0;a<4;a++){
+        try{
+          let buf=await proxyBuf(seg.url,120000);
+          if(seg.key){ const k=await keyFor(seg); buf=await crypto.subtle.decrypt({name:"AES-CBC",iv:ivFor(seg)},k,buf); }
+          return buf;
+        }catch(e){
+          last=e; if(e.message==="CANCELLED"||isProxyDown(e)) throw e;
+          await new Promise(r=>setTimeout(r,600*(a+1)));
+        }
+      }
+      throw last;
+    }
+    const blobs=[]; let cur=[], curBytes=0, total=0, lastMap=null, pushedInit=false, gotData=false;
+    const out=(u8)=>{ cur.push(u8); curBytes+=u8.length; total+=u8.length; if(curBytes>=32*1048576){ blobs.push(new Blob(cur)); cur=[]; curBytes=0; } };
+    if(tx){
+      tx.on("data",s=>{
+        gotData=true;
+        if(!pushedInit){ const m=new Uint8Array(s.initSegment.byteLength+s.data.byteLength); m.set(s.initSegment,0); m.set(s.data,s.initSegment.byteLength); out(m); pushedInit=true; }
+        else out(new Uint8Array(s.data));
+      });
+    }
+    const WIN=5; const pend=new Map(); const t0=Date.now(); let bytesIn=0;
+    const start=i=>{ if(i<n&&!pend.has(i)){ const p=fetchSeg(segs[i]); p.catch(()=>{}); pend.set(i,p); } };
+    for(let i=0;i<n;i++){
+      for(let k=0;k<WIN;k++) start(i+k);
+      jobCheck();
+      const buf=await pend.get(i); pend.delete(i);
+      bytesIn+=buf.byteLength;
+      const s=segs[i];
+      if(s.map && s.map!==lastMap){ lastMap=s.map; out(new Uint8Array(await proxyBuf(s.map,60000))); }
+      if(tx){ tx.push(new Uint8Array(buf)); tx.flush(); }
+      else out(new Uint8Array(buf));
+      onProg(i+1,n,null,bytesIn/Math.max(1,(Date.now()-t0)/1000), total);
+    }
+    if(cur.length) blobs.push(new Blob(cur));
+    if(tx && !gotData) throw new Error("HLS_MUX_FAIL");
+    const type=(fmp4||tx)?"video/mp4":"video/mp2t";
+    return {blob:new Blob(blobs,{type}), ext:(fmp4||tx)?"mp4":"ts"};
+  }
+
+  // ---- naming ----
+  function safeName(s){ return String(s||"").replace(/[\\\/:*?"<>|\u0000-\u001f]+/g," ").replace(/\s+/g," ").trim().slice(0,90); }
+  function videoFileName(c, ext){
+    let base=safeName(c.title);
+    if(!base||/^(home|index|watch|video)$/i.test(base)) base=safeName(nameFromUrl(c.url).replace(/\.[A-Za-z0-9]{2,5}$/,""));
+    if(!base) base="video_"+uid();
+    if(c.hls && ext) return base+"."+ext;
+    const own=(nameFromUrl(c.url).match(/\.(mp4|webm|mov|mkv|m4v)$/i)||[])[1];
+    return base+"."+(own||ext||"mp4");
+  }
+
+  // ---- background pill ----
+  function bgUpdate(){
+    const el=document.getElementById("importBg"); if(!el) return;
+    if(!importJob.running){ el.style.display="none"; return; }
+    el.style.display="flex";
+    document.getElementById("importBgText").textContent=importJob.label||("استيراد "+importJob.done+"/"+importJob.total);
+  }
+  document.getElementById("importBgCancel").addEventListener("click",()=>{
+    importJob.cancel=true; importJob.aborts.forEach(a=>{ try{ a.abort(); }catch(e){} });
+    document.getElementById("importBgText").textContent="جاري الإيقاف…";
+  });
+  function fmtSpeed(sp){ return sp?(" • "+fmtSize(sp)+"/ث"):""; }
+  function importErrMsg(e){
+    const m=(e&&e.message)||"";
+    if(m==="CANCELLED") return "أوقفته";
+    if(m==="HLS_LIVE") return "هذا بث مباشر (ما له نهاية) — ما يندزّل";
+    if(m==="HLS_DRM") return "الفيديو مشفّر بحماية (DRM) — ما أقدر أحمّله";
+    if(m==="HLS_EMPTY") return "قائمة التشغيل فاضية";
+    if(m==="NOT_M3U8") return "هذا مو ملف HLS صالح";
+    if(m==="NOT_MEDIA") return "الرابط يرجّع صفحة مو ملف فيديو";
+    if(m==="HLS_MUX_FAIL") return "ما قدرت أحوّل مقاطع HLS لـMP4 (يحتاج إنترنت لمرة وحدة لتحميل المحوّل)";
+    return proxyErrMsg(e);
+  }
+
+  async function runImportDownload(picked, logWrap, btn){
+    importJob.running=true; importJob.cancel=false; importJob.total=picked.length; importJob.done=0; bgUpdate();
+    let ok=0, dup=0, fail=0;
+    const imgs=picked.filter(c=>c.kind!=="video"), vids=picked.filter(c=>c.kind==="video");
+    const mkLine=(t)=>{ const l=document.createElement("div"); l.textContent=t; logWrap.appendChild(l); logWrap.scrollTop=logWrap.scrollHeight; return l; };
+    const finishOne=()=>{ importJob.done++; if(!importJob.label) bgUpdate(); if((ok+dup+fail)%8===0) renderGrid(); };
+    let ii=0;
+    async function imgWorker(){
+      while(ii<imgs.length && !importJob.cancel){
+        const c=imgs[ii++]; const line=mkLine("⏳ "+c.url);
+        try{
+          let blob=c.blob;
+          for(let a=0;!blob&&a<2;a++){ try{ blob=await proxyGet(c.url,"blob",90000); }catch(e){ if(a===1||isProxyDown(e)) throw e; } }
+          const res=await addImageFromBlob(blob,nameFromUrl(c.url),{kind:"image",noRender:true});
+          if(res&&res.duplicate){ dup++; line.textContent="↷ "+c.url+" — موجودة مسبقًا"; } else{ ok++; line.textContent="✓ "+c.url; }
+        }catch(e){ fail++; line.textContent="✗ "+c.url+" — "+importErrMsg(e); }
+        finishOne();
+      }
+    }
+    async function vidWorker(){
+      for(const c of vids){
+        if(importJob.cancel) break;
+        const nm=videoFileName(c);
+        const line=mkLine("⏳ "+nm);
+        let lastUi=0;
+        const prog=(a,b,msg,sp,bytes)=>{
+          const now=Date.now(); if(now-lastUi<350 && !msg) return; lastUi=now;
+          let t;
+          if(msg) t=msg;
+          else if(c.hls) t=`${a}/${b} مقطع (${Math.round(a*100/b)}%)${bytes?" • "+fmtSize(bytes):""}${fmtSpeed(sp)}`;
+          else t=`${fmtSize(a)}${b?" / "+fmtSize(b)+" ("+Math.round(a*100/b)+"%)":""}${fmtSpeed(sp)}`;
+          line.textContent="⏳ "+nm+" — "+t;
+          importJob.label=`فيديو ${importJob.done+1}/${importJob.total}: ${t}`; bgUpdate();
+        };
+        try{
+          let blob, ext;
+          if(c.hls){ const r=await downloadHls(c,prog); blob=r.blob; ext=r.ext; }
+          else{ blob=await proxyStream(c.url,prog); ext=null; }
+          const fname=videoFileName(c,ext||(blob.type==="video/webm"?"webm":null));
+          line.textContent="⏳ "+fname+" — جاري الحفظ ("+fmtSize(blob.size)+")…";
+          const res=await addImageFromBlob(blob,fname,{kind:"video",noRender:true});
+          if(res&&res.duplicate){ dup++; line.textContent="↷ "+fname+" — موجود مسبقًا"; }
+          else{ ok++; line.textContent="✓ "+fname+" ("+fmtSize(blob.size)+")"; }
+        }catch(e){ fail++; line.textContent="✗ "+nm+" — "+importErrMsg(e); }
+        importJob.label=""; finishOne();
+      }
+    }
+    await Promise.all([imgWorker(),imgWorker(),imgWorker(),vidWorker()]);
+    importJob.running=false; importJob.label=""; bgUpdate();
+    renderGrid(); backgroundPasses();
+    btn.disabled=false; btn.textContent="تحميل المحدد";
+    let msg=importJob.cancel?`أوقفت — تم استيراد ${ok}`:`تم استيراد ${ok}`;
+    if(dup) msg+=` — تجاهلت ${dup} مكرّرة`;
+    if(fail) msg+=` — تعذّر ${fail}`;
+    toast(msg,{duration:fail?6000:3500});
+  }
+
+  document.getElementById("importDownloadSelectedBtn").addEventListener("click", ()=>{
     const picked=importCandidates.filter(c=>c.selected&&!c.failed);
     if(!picked.length){ toast("ما حددت شي"); return; }
     if(!db){ toast("التخزين المحلي مو شغّال — جرّب زر «فحص التطبيق»",{duration:6000}); return; }
+    if(importJob.running){ toast("أكو استيراد شغّال حاليًا — انتظره أو أوقفه"); return; }
     const btn=document.getElementById("importDownloadSelectedBtn");
     const logWrap=document.getElementById("importDownloadLog");
     btn.disabled=true; btn.textContent="جاري التحميل…";
     logWrap.style.display="flex"; logWrap.innerHTML="";
-    let ok=0, dup=0, fail=0, idx=0, firstErr=null;
-    async function worker(){
-      while(idx<picked.length){
-        const c=picked[idx++];
-        const line=document.createElement("div");
-        line.textContent="⏳ "+c.url;
-        logWrap.appendChild(line); logWrap.scrollTop=logWrap.scrollHeight;
-        try{
-          const blob=c.blob||await proxyGet(c.url,"blob",c.kind==="video"?300000:90000);
-          const res=await addImageFromBlob(blob,nameFromUrl(c.url),{kind:c.kind,noRender:true});
-          if(res&&res.duplicate){ dup++; line.textContent="↷ "+c.url+" — موجودة مسبقًا"; }
-          else{ ok++; line.textContent="✓ "+c.url; }
-        }catch(e){
-          fail++; if(!firstErr) firstErr=e;
-          line.textContent="✗ "+c.url+" — "+proxyErrMsg(e);
-        }
-        if((ok+dup+fail)%8===0) renderGrid();
-      }
-    }
-    await Promise.all([worker(),worker(),worker()]);
-    renderGrid(); backgroundPasses();
-    btn.disabled=false; btn.textContent="تحميل المحدد";
-    let msg=`تم استيراد ${ok}`;
-    if(dup) msg+=` — تجاهلت ${dup} مكرّرة`;
-    if(fail) msg+=` — تعذّر ${fail}`;
-    toast(msg,{duration:fail?6000:3500});
+    if(picked.some(c=>c.kind==="video")) toast("الفيديوهات الكبيرة تنزل بالخلفية — تكدر تسكّر هذي النافذة وتكمل شغلك",{duration:5000});
+    runImportDownload(picked,logWrap,btn);
   });
 
   // ============================================================
